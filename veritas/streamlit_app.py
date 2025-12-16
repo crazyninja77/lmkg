@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sys
 import time
@@ -226,6 +227,21 @@ def main():
         annotator_id = st.text_input("Annotator ID (required)", value="")
         show_support = st.checkbox("Show supporting triples", value=True)
         show_wikidata_ids = st.checkbox("Show Wikidata ID triples", value=True)
+
+        st.markdown("---")
+        st.header("Data source")
+        data_source = st.radio(
+            "Select data source",
+            ["HuggingFace dataset", "Upload JSONL file"],
+            index=0,
+        )
+        uploaded_file = None
+        if data_source == "Upload JSONL file":
+            uploaded_file = st.file_uploader(
+                "JSONL file (one JSON object per line)",
+                type=["json", "jsonl"],
+            )
+
         st.markdown("---")
         st.caption("Annotations are saved to veritas/annotations.csv")
 
@@ -233,11 +249,43 @@ def main():
         st.info("Enter your Annotator ID to begin.")
         st.stop()
 
-    ds = load_hf_dataset()
-    split = ds.get("test")
-    if split is None or len(split) == 0:
-        st.error("No test split found or it is empty.")
-        st.stop()
+    # Load data according to the selected source
+    if data_source == "HuggingFace dataset":
+        ds = load_hf_dataset()
+        split = ds.get("test")
+        if split is None or len(split) == 0:
+            st.error("No test split found or it is empty.")
+            st.stop()
+    else:
+        if uploaded_file is None:
+            st.info("Upload a JSONL file to begin.")
+            st.stop()
+
+        # Parse JSONL file: one JSON object per line
+        try:
+            file_bytes = uploaded_file.getvalue()
+            lines = file_bytes.decode("utf-8").splitlines()
+        except Exception as e:
+            st.error(f"Could not read uploaded file: {e}")
+            st.stop()
+
+        records: List[dict] = []
+        for line_no, line in enumerate(lines, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception as e:
+                st.error(f"Error parsing JSON on line {line_no}: {e}")
+                st.stop()
+            records.append(obj)
+
+        if not records:
+            st.error("Uploaded file is empty or contains only blank lines.")
+            st.stop()
+
+        split = records
 
     n_total = len(split)
     done_examples = _completed_example_indices(annotator_id)
