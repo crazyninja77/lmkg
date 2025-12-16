@@ -11,15 +11,16 @@ from tqdm import tqdm
 
 from lmkg.agent import LMKGAgent
 from lmkg.exceptions import MalformedQueryException
-from utils import count_lines, get_timestamp_and_hash
+from veritas.utils import count_lines, get_timestamp_and_hash, LLM_COST_MAPPING
 
 
 class Arguments(Tap):
     file_path: str = None
     start: int = 0  # Starting line number (0-based)
     end: int = None  # Ending line number (inclusive, 0-based)
-    maximum: int = None  # Maximum number of instances to generate
+    max_to_generate: int = None  # Maximum number of instances to generate
 
+    model: str = "gpt-5.1"
     graphdb_endpoint: str = "http://localhost:7200/repositories/wikidata5m"
     task: str = "contradiction_generation"
     functions: list[str] = None
@@ -56,12 +57,14 @@ def answer_parser(answer: str) -> tuple[dict, set[str]]:
 
 def main(args: Arguments):
     agent = LMKGAgent(
+        model=args.model,
         functions=args.functions,
         graphdb_endpoint=args.graphdb_endpoint,
         answer_parser=answer_parser,
         timeout=args.timeout,
         recursion_limit=args.recursion_limit
     )
+    model_cost = LLM_COST_MAPPING[args.model]
 
     input_filename = osp.basename(args.file_path)
     output_dir = osp.join(osp.dirname(args.file_path), get_timestamp_and_hash())
@@ -73,17 +76,14 @@ def main(args: Arguments):
     output_file = osp.join(output_dir, f"contradicted-{input_filename}")
 
     # If end is not specified, process until the end of the file
+    total_lines = count_lines(args.file_path)
     if args.end is None:
-        total_lines = count_lines(args.file_path)
         args.end = total_lines - 1
 
     # Calculate the number of lines to process
     lines_to_process = args.end - args.start + 1
     if lines_to_process <= 0:
         raise ValueError(f"Invalid range: start={args.start}, end={args.end}. End must be >= start.")
-    if args.maximum is not None and lines_to_process < args.maximum:
-        raise ValueError(f"There are {lines_to_process} lines to process "
-                         f"but maximum is set to {args.maximum}")
 
     num_generated = 0
     with open(args.file_path) as f_in, open(output_file, "w") as f_out, open(output_log, "w", buffering=1) as f_log:
@@ -92,9 +92,7 @@ def main(args: Arguments):
         for i in range(args.start):
             next(f_in, None)
 
-        total = args.maximum if args.maximum else lines_to_process
-
-        with tqdm(total=total, desc="Generating contradictions", mininterval=1) as bar:
+        with tqdm(total=lines_to_process, desc="Generating", mininterval=1) as bar:
             for line_offset, line in enumerate(f_in):
                 current_line_num = args.start + line_offset
                 
@@ -123,7 +121,7 @@ def main(args: Arguments):
                 answer = None
                 errors = []
                 try:
-                    answer, trace = agent.run(
+                    answer, trace, usage_metadata = agent.run(
                         args.task,
                         task_kwargs,
                         initial_ids,
@@ -148,15 +146,24 @@ def main(args: Arguments):
                     data['output'].append(answer)
                     f_out.write(f"{json.dumps(data)}\n")
                     num_generated += 1
-                    if args.maximum:
-                        bar.update()
 
-                if args.maximum is not None and num_generated == args.maximum:
+                # Update progress bar tokens & cost based on agent's accumulated usage
+                total_input_tokens, total_output_tokens = agent.get_usage_totals()
+                if total_input_tokens or total_output_tokens:
+                    total_cost = (
+                        total_input_tokens * model_cost[0]
+                        + total_output_tokens * model_cost[1]
+                    ) / 1_000_000
+                    bar.set_postfix(
+                        successful=f"{num_generated:,}",
+                        input_tokens=f"{total_input_tokens:,}",
+                        output_tokens=f"{total_output_tokens:,}",
+                        cost=f"${total_cost:.4f}",
+                    )
+                bar.update()
+
+                if args.max_to_generate and num_generated == args.max_to_generate:
                     break
-
-                if not args.maximum:
-                    # No upper bound provided, so we update based on lines in file
-                    bar.update()
 
 
 args = Arguments().parse_args()

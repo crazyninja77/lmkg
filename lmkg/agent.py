@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Callable, Optional
 
 from langchain_openai import ChatOpenAI
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langgraph.prebuilt import create_react_agent, ToolNode
 import pydantic
 
@@ -24,6 +25,7 @@ class LMKGAgent:
         recursion_limit (int, optional): The maximum recursion depth for the agent's execution.
     """
     def __init__(self,
+                 model: str,
                  functions: list[str],
                  graphdb_endpoint: str,
                  answer_parser: Callable[[str], tuple[Any, set[str]]] = None,
@@ -35,7 +37,7 @@ class LMKGAgent:
         tool_list = self.graphdb.tools + self.answer_store.tools
 
         model = ChatOpenAI(
-            model="nf-gpt-4o-mini",
+            model=model,
             temperature=0,
             max_retries=2,
             base_url="https://ai-research-proxy.azurewebsites.net",
@@ -47,22 +49,51 @@ class LMKGAgent:
         self.timeout = timeout
         self.recursion_limit = recursion_limit
 
+        # Accumulated usage across all invocations of this agent instance
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+
+    def _accumulate_usage(self, usage_metadata: dict) -> None:
+        """
+        Accumulate token usage from a single invocation into the running totals.
+        """
+        if not usage_metadata:
+            return
+        for usage in usage_metadata.values():
+            # We only care about the high-level input/output token counts
+            self.total_input_tokens += usage.get("input_tokens", 0)
+            self.total_output_tokens += usage.get("output_tokens", 0)
+
+    def get_usage_totals(self) -> tuple[int, int]:
+        """
+        Get the accumulated input and output token counts for this agent.
+        """
+        return self.total_input_tokens, self.total_output_tokens
+
     async def _invoke_agent(self, agent, prompt):
-        response = await asyncio.wait_for(
-            agent.ainvoke(
-                input={"messages": [{"role": "user", "content": prompt}]},
-                config={"recursion_limit": self.recursion_limit},
-            ),
-            timeout=self.timeout
-        )
-        return response
+        usage_callback = UsageMetadataCallbackHandler()
+        try:
+            response = await asyncio.wait_for(
+                agent.ainvoke(
+                    input={"messages": [{"role": "user", "content": prompt}]},
+                    config={
+                        "recursion_limit": self.recursion_limit,
+                        "callbacks": [usage_callback],
+                    },
+                ),
+                timeout=self.timeout,
+            )
+            return response, usage_callback.usage_metadata
+        finally:
+            self._accumulate_usage(usage_callback.usage_metadata)
+
 
     def run(self,
             task: str,
             task_kwargs: dict[str, str],
             initial_ids: set[str] = None,
             check_initial_ids: bool = False,
-            ) -> tuple[Optional[str], str]:
+            ) -> tuple[Optional[str], str, dict]:
         """
         Executes the agent's main task loop. It generates a response based on
         the task and its arguments, iterating over the conversation until a
@@ -90,6 +121,7 @@ class LMKGAgent:
         self.graphdb.clear_session_ids()
 
         task_prompt = build_task_input(task, task_kwargs)
-        response = asyncio.run(self._invoke_agent(self.agent, task_prompt))
 
-        return self.answer_store.answer, response
+        response, usage_metadata = asyncio.run(self._invoke_agent(self.agent, task_prompt))
+
+        return self.answer_store.answer, response, usage_metadata

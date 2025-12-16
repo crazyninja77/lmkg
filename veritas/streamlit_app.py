@@ -168,6 +168,27 @@ def _format_triple_ids_markdown(triple) -> str:
     return f"({_fmt(s)}) -[{_fmt(r)}]-> ({_fmt(o)})"
 
 
+def _completed_example_indices(annotator_id: str) -> set[int]:
+    existing = _read_existing_annotations()
+    done_examples: set[int] = set()
+    for r in existing:
+        if r.get("annotator_id") != annotator_id:
+            continue
+        ex_idx_str = r.get("example_index", "-1")
+        try:
+            ex_idx = int(ex_idx_str)
+        except Exception:
+            continue
+        try:
+            neg_idx = int(r.get("neg_index", -1))
+        except Exception:
+            neg_idx = -1
+        # Example-level annotations have neg_index == -1
+        if neg_idx == -1 and ex_idx >= 0:
+            done_examples.add(ex_idx)
+    return done_examples
+
+
 def _filter_unlabeled(tasks: List[dict], annotator_id: str) -> List[dict]:
     existing = _read_existing_annotations()
     done_examples = set()
@@ -203,7 +224,6 @@ def main():
     with st.sidebar:
         st.header("Annotator")
         annotator_id = st.text_input("Annotator ID (required)", value="")
-        randomize = st.checkbox("Randomize order (per annotator)", value=True)
         show_support = st.checkbox("Show supporting triples", value=True)
         show_wikidata_ids = st.checkbox("Show Wikidata ID triples", value=True)
         st.markdown("---")
@@ -214,97 +234,134 @@ def main():
         st.stop()
 
     ds = load_hf_dataset()
-    test_split = ds.get("train")  # FIXME ###########################################################################
-    if test_split is None or len(test_split) == 0:
+    split = ds.get("test")
+    if split is None or len(split) == 0:
         st.error("No test split found or it is empty.")
         st.stop()
 
-    # Build tasks and filter already-completed for this annotator
-    tasks_all = build_tasks(test_split)
-    if randomize:
-        import random as _random
-
-        rng = _random.Random(_stable_seed_from_text(annotator_id))
-        rng.shuffle(tasks_all)
-
-    tasks = _filter_unlabeled(tasks_all, annotator_id)
-
-    if "_start_time" not in st.session_state:
-        st.session_state._start_time = time.time()
-    if "_task_idx" not in st.session_state:
-        st.session_state._task_idx = 0
-
-    total_remaining = len(tasks)
-    total_all = len(tasks_all)
+    n_total = len(split)
+    done_examples = _completed_example_indices(annotator_id)
+    n_done = len(done_examples)
+    n_remaining = max(n_total - n_done, 0)
 
     st.subheader("Progress")
     st.write(
-        f"Remaining for you: {total_remaining} / {total_all} (already annotated items are hidden)"
+        f"Remaining for you: {n_remaining} / {n_total} (already annotated items are hidden)"
     )
 
-    if total_remaining == 0:
+    if n_remaining == 0:
         st.success("You have completed all available items. Thank you!")
         st.stop()
 
-    idx = st.session_state._task_idx
-    if idx >= total_remaining:
-        idx = 0
-        st.session_state._task_idx = 0
+    # Determine which example index to show next (lazy, example-level)
+    if "current_example_index" not in st.session_state:
+        st.session_state.current_example_index = 0
 
-    task = tasks[idx]
+    idx = st.session_state.current_example_index
+    # Skip already annotated examples for this annotator
+    while idx < n_total and idx in done_examples:
+        idx += 1
+
+    st.session_state.current_example_index = idx
+
+    if idx >= n_total:
+        st.success("You have completed all available items. Thank you!")
+        st.stop()
 
     # Reset per-item timer
     if "_per_item_started" not in st.session_state:
         st.session_state._per_item_started = time.time()
-    else:
-        # If switching to a new task (e.g., after submit), reset timer
-        pass
 
-    st.subheader(f"Item {idx + 1} of {total_remaining}")
+    st.subheader(f"Item {idx + 1} of {n_total}")
+
+    data = split[idx]
+
+    # Extract passage and triples lazily for the current example only
+    passage = data.get("input", "")
+    try:
+        support_triples = data["output"][0]["non_formatted_surface_output"]
+    except Exception:
+        support_triples = []
+    try:
+        candidate_triples = data["output"][1]["neg_non_formatted_surface_output"]
+    except Exception:
+        candidate_triples = []
+
+    try:
+        support_triples_ids = data.get("meta_obj", {}).get(
+            "non_formatted_wikidata_id_output", []
+        )
+    except Exception:
+        support_triples_ids = []
+    try:
+        candidate_triples_ids = data["output"][1][
+            "neg_non_formatted_wikidata_id_output"
+        ]
+    except Exception:
+        candidate_triples_ids = []
+
+    if not isinstance(support_triples, list):
+        support_triples = []
+    if not isinstance(candidate_triples, list):
+        candidate_triples = []
+    if not isinstance(support_triples_ids, list):
+        support_triples_ids = []
+    if not isinstance(candidate_triples_ids, list):
+        candidate_triples_ids = []
 
     st.subheader("Passage")
-    st.write(task["passage"])
+    st.write(passage)
 
-    if show_support:
-        st.subheader("Supporting triples (surface)")
-        if task["support_triples"]:
-            for t in task["support_triples"]:
+    # Two-pane layout: left = original/supporting data, right = contradicting data
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.subheader("Supporting data")
+        if show_support:
+            st.markdown("**Supporting triples (surface)**")
+            if support_triples:
+                for t in support_triples:
+                    st.markdown(f"- {_format_triple(t)}")
+            else:
+                st.caption("No supporting triples available.")
+            if show_wikidata_ids:
+                st.markdown("**Supporting triples (Wikidata IDs)**")
+                if support_triples_ids:
+                    for t in support_triples_ids:
+                        st.markdown(f"- {_format_triple_ids_markdown(t)}")
+                else:
+                    st.caption("No supporting ID triples available.")
+        else:
+            st.caption("Supporting triples are hidden. Enable them in the sidebar.")
+
+    with right_col:
+        st.subheader("Contradicting data")
+        st.markdown("**Candidate (NEG) triples to validate (assess ALL together)**")
+        if candidate_triples:
+            for t in candidate_triples:
                 st.markdown(f"- {_format_triple(t)}")
         else:
-            st.caption("No supporting triples available.")
+            st.caption("No NEG triples available.")
         if show_wikidata_ids:
-            st.subheader("Supporting triples (Wikidata IDs)")
-            if task.get("support_triples_ids"):
-                for t in task["support_triples_ids"]:
+            st.markdown("**Candidate (NEG) triples (Wikidata IDs)**")
+            if candidate_triples_ids:
+                for t in candidate_triples_ids:
                     st.markdown(f"- {_format_triple_ids_markdown(t)}")
             else:
-                st.caption("No supporting ID triples available.")
+                st.caption("No NEG ID triples available.")
 
-    st.markdown("**Candidate (NEG) triples to validate (assess ALL together)**")
-    if task["candidate_triples"]:
-        for t in task["candidate_triples"]:
-            st.markdown(f"- {_format_triple(t)}")
-    else:
-        st.caption("No NEG triples available.")
-    if show_wikidata_ids:
-        st.subheader("Candidate (NEG) triples (Wikidata IDs)")
-        if task.get("candidate_triples_ids"):
-            for t in task["candidate_triples_ids"]:
-                st.markdown(f"- {_format_triple_ids_markdown(t)}")
-        else:
-            st.caption("No NEG ID triples available.")
-
-    cols = st.columns(3)
+    # Center the YES / NO / SKIP buttons underneath the two panes
+    cols = st.columns([1, 1, 1, 1, 1])
 
     def _submit(label: str):
         started = st.session_state._per_item_started
         elapsed_ms = int((time.time() - started) * 1000)
         # Join all candidate triples into one string to keep CSV schema stable
-        joined_triples = " || ".join(_format_triple(t) for t in task.get("candidate_triples", []))
+        joined_triples = " || ".join(_format_triple(t) for t in candidate_triples)
         record = {
             "annotation_id": str(uuid.uuid4()),
             "annotator_id": annotator_id,
-            "example_index": task["example_index"],
+            "example_index": idx,
             "neg_index": -1,
             "label": label,
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -312,18 +369,18 @@ def main():
             "candidate_triple": joined_triples,
         }
         _append_annotation(record)
-        # Move to next item
-        st.session_state._task_idx += 1
+        # Move to next example
+        st.session_state.current_example_index = idx + 1
         st.session_state._per_item_started = time.time()
         st.rerun()
 
-    with cols[0]:
+    with cols[1]:
         if st.button("YES (contradicted)"):
             _submit("YES")
-    with cols[1]:
+    with cols[2]:
         if st.button("NO (not contradicted)"):
             _submit("NO")
-    with cols[2]:
+    with cols[3]:
         if st.button("SKIP"):
             _submit("SKIP")
 
