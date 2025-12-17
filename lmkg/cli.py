@@ -26,7 +26,7 @@ def main(args: Arguments):
     )
 
     task_kwargs = dict(arg.lstrip('--').split('=') for arg in args.extra_args)
-    answer, trace, _ = agent.run(args.task, task_kwargs)
+    answer, trace = agent.run(args.task, task_kwargs)
 
     print(answer)
 
