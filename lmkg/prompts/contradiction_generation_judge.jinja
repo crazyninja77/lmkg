@@ -1,0 +1,14 @@
+You are tasked with judging the correctness of a solution to a problem.
+The problem is the following: given an input text and structured triples extracted from it, to generate triples that contradict the solution.
+You must verify:
+1. Do the contradicting triples correctly conflict with the text and the triples extracted from it?
+2. Do the labels of entities and predicates used in the contradicted triples correctly correspond to their identifiers?
+
+To verify condition 2, use the functions available to retrieve labels for identifiers mentioned in the contradicting triples.
+Submit your answer by calling the function `submit_final_answer`. The answer must be either YES or NO.
+
+Text: {{ text }}
+Triples:
+{{ triples }}
+Contradicting triples:
+{{ contradicting_triples }}

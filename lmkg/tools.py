@@ -152,6 +152,15 @@ class GraphDBTool(Tool):
         return self.get_descriptions([entity_id], "rdfs:comment")
 
     @tool
+    def get_entity_labels(self, entity_id: str):
+        """Retrieve description of an entity given its unique KG identifier.
+
+        Args:
+            entity_id: Identifier of the entity in the knowledge graph.
+        """
+        return self.get_descriptions([entity_id], "rdfs:label")
+
+    @tool
     def get_predicate_description(self, predicate_id: str):
         """Retrieve description of a predicate given its unique KG identifier.
 
@@ -275,18 +284,19 @@ class AnswerStoreTool(Tool):
             answer: Answer to be submitted.
         """
         return_string = "Answer submitted"
+        self.reasoning = reasoning
         if self.answer_parser:
             try:
                 self.answer, ids_in_answer = self.answer_parser(answer)
-                valid_ids = self.graphdb.session_ids.union(self.initial_ids if self.initial_ids else set())
-                hallucinated_ids = ids_in_answer.difference(valid_ids)
-                if hallucinated_ids:
-                    return_string = (f"The answer contains identifiers that were not retrieved "
-                                     f"by any function: {', '.join(hallucinated_ids)}. Please try again.")
+                if ids_in_answer:
+                    valid_ids = self.graphdb.session_ids.union(self.initial_ids if self.initial_ids else set())
+                    hallucinated_ids = ids_in_answer.difference(valid_ids)
+                    if hallucinated_ids:
+                        return_string = (f"The answer contains identifiers that were not retrieved "
+                                        f"by any function: {', '.join(hallucinated_ids)}. Please try again.")
             except Exception as e:
                 return_string = f"Error parsing answer: {e}"
         else:
-            self.reasoning = reasoning
             self.answer = answer
 
         return return_string

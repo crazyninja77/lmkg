@@ -95,17 +95,16 @@ class LMKGAgent:
                 ),
                 timeout=self.timeout,
             )
-            return response, usage_callback.usage_metadata
+            return response
         finally:
             self._accumulate_usage(usage_callback.usage_metadata)
-
 
     def run(self,
             task: str,
             task_kwargs: dict[str, str],
             initial_ids: set[str] = None,
             check_initial_ids: bool = False,
-            ) -> tuple[Optional[str], str, dict]:
+            ) -> tuple[Optional[str], str, str]:
         """
         Executes the agent's main task loop. It generates a response based on
         the task and its arguments, iterating over the conversation until a
@@ -134,6 +133,6 @@ class LMKGAgent:
 
         task_prompt = build_task_input(task, task_kwargs)
 
-        response, usage_metadata = asyncio.run(self._invoke_agent(self.agent, task_prompt))
+        response = asyncio.run(self._invoke_agent(self.agent, task_prompt))
 
-        return self.answer_store.answer, response, usage_metadata
+        return self.answer_store.answer, self.answer_store.reasoning, response

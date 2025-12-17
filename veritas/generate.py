@@ -32,7 +32,7 @@ class Arguments(Tap):
 
 def answer_parser(answer: str) -> tuple[dict, set[str]]:
     """Parse the answer to extract QIDs generated in it. Used to check for hallucination."""
-    triple_pattern = re.compile(r'\[([^:\]]+):([PQ]\d+)\] \[([^:\]]+):([PQ]\d+)\] \[([^:\]]+):([PQ]\d+)\]')
+    triple_pattern = re.compile(r'\[([PQ]\d+):([^:\]]+)\] \[([PQ]\d+):([^:\]]+)\] \[([PQ]\d+):([^:\]]+)\]')
 
     lines = answer.strip().split("\n")
     ids_in_answer = set()
@@ -45,8 +45,8 @@ def answer_parser(answer: str) -> tuple[dict, set[str]]:
         if not match:
             raise ValueError(f"Invalid format detected in line: {line}")
 
-        parsed_triple_labels.append([match.group(1), match.group(3), match.group(5)])
-        parsed_triple_ids.append([match.group(2), match.group(4), match.group(6)])
+        parsed_triple_ids.append([match.group(1), match.group(3), match.group(5)])
+        parsed_triple_labels.append([match.group(2), match.group(4), match.group(6)])
         ids_in_answer.update(parsed_triple_ids[-1])
 
     answer = {"neg_non_formatted_wikidata_id_output": parsed_triple_ids,
@@ -55,12 +55,35 @@ def answer_parser(answer: str) -> tuple[dict, set[str]]:
     return answer, ids_in_answer
 
 
+def judge_answer_parser(answer: str) -> tuple[bool, set[str]]:
+    """Parse the answer to extract YES or NO.
+    """
+    if answer.strip().lower() == "yes":
+        judgement = True
+    elif answer.strip().lower() == "no":
+        judgement = False
+    else:
+        raise ValueError(f"Invalid answer: {answer}. Must be YES or NO.")
+
+    return judgement, set()
+
+
 def main(args: Arguments):
     agent = LMKGAgent(
         model=args.model,
         functions=args.functions,
         graphdb_endpoint=args.graphdb_endpoint,
         answer_parser=answer_parser,
+        timeout=args.timeout,
+        recursion_limit=args.recursion_limit,
+        max_label_count=2,
+        max_description_length=100
+    )
+    judge = LMKGAgent(
+        model=args.model,
+        functions=["get_entity_labels", "get_predicate_description"],
+        graphdb_endpoint=args.graphdb_endpoint,
+        answer_parser=judge_answer_parser,
         timeout=args.timeout,
         recursion_limit=args.recursion_limit,
         max_label_count=2,
@@ -113,7 +136,7 @@ def main(args: Arguments):
                     pairs = []
                     initial_ids.update(t_ids)
                     for id, label in zip(t_ids, t_labels):
-                        pairs.append(f"[{label}:{id}]")
+                        pairs.append(f"[{id}:{label}]")
 
                     triples.append(" ".join(pairs))
 
@@ -123,7 +146,7 @@ def main(args: Arguments):
                 answer = None
                 errors = []
                 try:
-                    answer, trace, usage_metadata = agent.run(
+                    answer, reasoning, _ = agent.run(
                         args.task,
                         task_kwargs,
                         initial_ids,
@@ -141,27 +164,45 @@ def main(args: Arguments):
                 if answer is None:
                     errors.append("no answer")
 
+                if not errors:
+                    answer_triples = []
+                    for labels, identifiers in zip(answer['neg_non_formatted_wikidata_id_output'], answer['neg_non_formatted_surface_output']):
+                        answer_triples.append(" ".join([f"[{label}:{id}]" for label, id in zip(labels, identifiers)]))
+
+                    answer_triples = "\n".join(answer_triples)
+
+                    judge_answer, judge_reasoning, _ = judge.run(
+                        task="contradiction_generation_judge",
+                        task_kwargs={"text": passage, "triples": triples, "contradicting_triples": answer_triples}
+                    )
+                    if not judge_answer:
+                        errors.append("judge answer is no")
+                    else:
+                        answer['generation_reasoning'] = reasoning
+                        answer['judgement_reasoning'] = judge_reasoning
+                        data['output'].append(answer)
+                        f_out.write(f"{json.dumps(data)}\n")
+                        num_generated += 1
+
                 sample_log = ",".join(errors) if errors else "ok"
                 f_log.write(f"{current_line_num}\t{sample_log}\n")
 
-                if not errors:
-                    data['output'].append(answer)
-                    f_out.write(f"{json.dumps(data)}\n")
-                    num_generated += 1
-
                 # Update progress bar tokens & cost based on agent's accumulated usage
                 total_input_tokens, total_output_tokens = agent.get_usage_totals()
-                if total_input_tokens or total_output_tokens:
-                    total_cost = (
-                        total_input_tokens * model_cost[0]
-                        + total_output_tokens * model_cost[1]
-                    ) / 1_000_000
-                    bar.set_postfix(
-                        successful=f"{num_generated:,}",
-                        input_tokens=f"{total_input_tokens:,}",
-                        output_tokens=f"{total_output_tokens:,}",
-                        cost=f"${total_cost:.4f}",
-                    )
+                judge_input_tokens, judge_output_tokens = judge.get_usage_totals()
+                total_input_tokens += judge_input_tokens
+                total_output_tokens += judge_output_tokens
+
+                total_cost = (
+                    total_input_tokens * model_cost[0]
+                    + total_output_tokens * model_cost[1]
+                ) / 1_000_000
+                bar.set_postfix(
+                    successful=f"{num_generated:,}",
+                    input_tokens=f"{total_input_tokens:,}",
+                    output_tokens=f"{total_output_tokens:,}",
+                    cost=f"${total_cost:.4f}",
+                )
                 bar.update()
 
                 if args.max_to_generate and num_generated == args.max_to_generate:
