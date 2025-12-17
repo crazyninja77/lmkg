@@ -30,6 +30,7 @@ def main(args: Arguments):
 
     print(answer)
 
+
 if __name__ == "__main__":
     args = Arguments(explicit_bool=True).parse_args(known_only=True)
     main(args)

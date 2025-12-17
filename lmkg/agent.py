@@ -1,4 +1,5 @@
 import asyncio
+import warnings
 from typing import Any, Callable, Optional
 
 from langchain_openai import ChatOpenAI
@@ -71,7 +72,14 @@ class LMKGAgent:
         return self.total_input_tokens, self.total_output_tokens
 
     async def _invoke_agent(self, agent, prompt):
-        usage_callback = UsageMetadataCallbackHandler()
+        # Suppress the beta warning raised when instantiating UsageMetadataCallbackHandler
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*UsageMetadataCallbackHandler.*",
+                category=Warning,
+            )
+            usage_callback = UsageMetadataCallbackHandler()
         try:
             response = await asyncio.wait_for(
                 agent.ainvoke(
