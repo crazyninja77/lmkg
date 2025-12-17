@@ -43,7 +43,6 @@ class LMKGAgent:
 
         model = ChatOpenAI(
             model=model,
-            temperature=0,
             max_retries=2,
             base_url="https://ai-research-proxy.azurewebsites.net",
         )
