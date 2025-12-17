@@ -29,7 +29,15 @@ python -m lmkg relation_extraction --text="Amsterdam is the capital of the Nethe
 
 # Installation
 
-**Graph database:** LMKG currently supports [GraphDB](https://graphdb.ontotext.com/) as the graph database. While any other database that supports SPARQL could be used, we rely on its text capabilities for fast entity retrieval. Once GraphDB is installed, download the Wikidata5M dataset from this link and unzip it inside the `repositories` folder. Activate the repository on the GraphDB workbench, which will by default establish an endpoint at `http://localhost:7200/repositories/wikidata5m`.
+**Graph database:** LMKG currently supports [GraphDB](https://graphdb.ontotext.com/) as the graph database. While any other database that supports SPARQL could be used, we rely on its text capabilities for fast entity retrieval. Once GraphDB is installed, you can download the Wikidata5M dataset from Zenodo and untar it inside the `repositories` folder:
+
+```shell
+cd ~/.graphdb/data/repositories
+wget https://zenodo.org/records/17962315/files/wikidata5m.tar.zst
+tar --use-compress-program=unzstd -xvf wikidata5m.tar.zst
+```
+
+Activate the repository on the GraphDB workbench, which will by default establish an endpoint at `http://localhost:7200/repositories/wikidata5m`.
 
 **Installing LMKG:** We provide a conda environment file for creating a new environment called `lmkg` with all the dependencies:
 
