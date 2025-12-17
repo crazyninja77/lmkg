@@ -62,7 +62,9 @@ def main(args: Arguments):
         graphdb_endpoint=args.graphdb_endpoint,
         answer_parser=answer_parser,
         timeout=args.timeout,
-        recursion_limit=args.recursion_limit
+        recursion_limit=args.recursion_limit,
+        max_label_count=2,
+        max_description_length=100
     )
     model_cost = LLM_COST_MAPPING[args.model]
 

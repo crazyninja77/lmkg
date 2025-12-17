@@ -24,6 +24,8 @@ class LMKGAgent:
         graphdb_endpoint (str): The URL endpoint for accessing the graph database.
         timeout (int, optional): The maximum time in seconds to allow for agent execution.
         recursion_limit (int, optional): The maximum recursion depth for the agent's execution.
+        max_label_count (int, optional): The maximum number of labels to return for an entity.
+        max_description_length (int, optional): The maximum length of the description to return for an entity.
     """
     def __init__(self,
                  model: str,
@@ -31,9 +33,11 @@ class LMKGAgent:
                  graphdb_endpoint: str,
                  answer_parser: Callable[[str], tuple[Any, set[str]]] = None,
                  timeout: int = None,
-                 recursion_limit: int = None):
+                 recursion_limit: int = None,
+                 max_label_count: int = 3,
+                 max_description_length: int = 100):
         self.graphdb_endpoint = graphdb_endpoint
-        self.graphdb = GraphDBTool(graphdb_endpoint, functions)
+        self.graphdb = GraphDBTool(graphdb_endpoint, functions, max_label_count, max_description_length)
         self.answer_store = AnswerStoreTool(self.graphdb, answer_parser)
         tool_list = self.graphdb.tools + self.answer_store.tools
 

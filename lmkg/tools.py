@@ -39,13 +39,15 @@ class Tool:
 
 
 class GraphDBTool(Tool):
-    def __init__(self, endpoint: str, functions: list[str] = None):
+    def __init__(self, endpoint: str, functions: list[str] = None, max_label_count: int = 3, max_description_length: int = 100):
         super().__init__(functions)
         self.wrapper = SPARQLWrapper(endpoint)
         self.wrapper.setReturnFormat(JSON)
         self.queries_dict = dict()
         self.session_ids = set()
-
+        self.max_label_count = max_label_count
+        self.max_description_length = max_description_length
+        
     def _get_query(self, query_name: str):
         if query_name not in self.queries_dict:
             current_dir = osp.dirname(osp.abspath(__file__))
@@ -110,12 +112,10 @@ class GraphDBTool(Tool):
             if len(output) == 5:
                 break
 
-        description_predicate = "rdfs:label" if variable_pos == "p" else "rdfs:comment"
-        max_length = 150 if variable_pos == "p" else 300
-        return self.get_descriptions(output, description_predicate, check_in_graph=False, max_length=max_length)
+        description_predicate = "rdfs:label"
+        return self.get_descriptions(output, description_predicate, check_in_graph=False)
 
-    def get_descriptions(self, identifiers: list[str], predicate: str, check_in_graph: bool = True,
-                         max_length: int = 300):
+    def get_descriptions(self, identifiers: list[str], predicate: str, check_in_graph: bool = True):
         if check_in_graph:
             for i in identifiers:
                 self.check_id_in_graph(i)
@@ -138,7 +138,7 @@ class GraphDBTool(Tool):
                 output[entity_id].append(label)
 
         for identifier, descriptions in output.items():
-            output[identifier] = ", ".join(descriptions)[:max_length]
+            output[identifier] = ", ".join(descriptions[:self.max_label_count])[:self.max_description_length]
 
         return output
 
@@ -256,19 +256,22 @@ class AnswerStoreTool(Tool):
     def __init__(self, graphdb_tool: GraphDBTool, answer_parser: Callable[[str], Any] = None):
         super().__init__()
         self.answer = None
+        self.reasoning = None
         self.graphdb = graphdb_tool
         self.initial_ids = None
         self.answer_parser = answer_parser
 
     def initialize(self, initial_ids: set[str] = None):
+        self.reasoning = None
         self.answer = None
         self.initial_ids = initial_ids
 
     @tool
-    def submit_final_answer(self, answer: str):
+    def submit_final_answer(self, reasoning: str, answer: str):
         """Submits the final answer to a user's question.
 
         Args:
+            reasoning: One sentence describing the reasoning behind the answer.
             answer: Answer to be submitted.
         """
         return_string = "Answer submitted"
@@ -283,6 +286,7 @@ class AnswerStoreTool(Tool):
             except Exception as e:
                 return_string = f"Error parsing answer: {e}"
         else:
+            self.reasoning = reasoning
             self.answer = answer
 
         return return_string
