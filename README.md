@@ -22,7 +22,7 @@ You are tasked with identifying the correct predicate identifier in a knowledge 
 Given an input `text`, LMKG prompts the language model to solve this problem while using the KG as a tool:
 
 ```shell
-python main.py relation_extraction --text="Amsterdam is the capital of the Netherlands."
+python -m lmkg relation_extraction --text="Amsterdam is the capital of the Netherlands."
 # The correct predicate identifier in the knowledge graph that corresponds to 
 # the relationship between Amsterdam and the Netherlands is P1376.
 ```
@@ -39,30 +39,15 @@ conda env create -f environment.yml
 
 # Running
 
-- We currently support Llama 3.1 in its 8B and 70B sizes. These can be run locally with optional quantization, or via a [Text Generation Inference](https://huggingface.co/docs/text-generation-inference/en/index) client.
-- By default, we assume a running graph endpoint at `http://localhost:7200/repositories/wikidata5m`.
-- Three tasks are supported: `entity_linking`, `relation_extraction`, and `contradiction_generation`. Each of these tasks has a corresponding prompt in `lmkg/prompts`, defined as a jinja template with predefined arguments. The values for the arguments need to be passed via the command line.
+- **LLM access**: LMKG uses an OpenAI-compatible chat completion API via `langchain_openai.ChatOpenAI`. We assume that the environment variable `OPENAI_API_KEY` is set and that the configured endpoint exposes the requested model.
+- **Graph endpoint**: By default, we assume a running graph endpoint at `http://localhost:7200/repositories/wikidata5m`.
+- **Supported tasks**: `entity_linking`, `relation_extraction`, and `contradiction_generation`. Each task has a corresponding prompt in `lmkg/prompts`, defined as a jinja template with predefined arguments. The values for the arguments need to be passed via the command line.
 
-
-Running entity linking locally with Llama 3.1 8B:
+Running entity linking:
 ```shell
-python main.py entity_linking \
---text="Amsterdam is the capital of the Netherlands"
-```
-
-Same example, but with 4bit quantization:
-```shell
-python main.py entity_linking \
+python -m lmkg entity_linking \
 --text="Amsterdam is the capital of the Netherlands" \
---quantization="4bit"
-```
-
-Running with Llama 3.1 70B via a Text Generation Inference endpoint running at `http://127.0.0.1:8080`:
-```shell
-python main.py entity_linking \
---text="Amsterdam is the capital of the Netherlands" \
---model="Llama-3.1-70B" \
---inference_client="http://127.0.0.1:8080"
+--model="gpt-5.1"
 ```
 
 
