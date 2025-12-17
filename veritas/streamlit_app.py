@@ -347,6 +347,11 @@ def main():
         ]
     except Exception:
         candidate_triples_ids = []
+    # Optional: LLM judgement reasoning attached by the generation script
+    try:
+        llm_judgement_reasoning = data["output"][1].get("judgement_reasoning")
+    except Exception:
+        llm_judgement_reasoning = None
 
     if not isinstance(support_triples, list):
         support_triples = []
@@ -398,7 +403,14 @@ def main():
             else:
                 st.caption("No NEG ID triples available.")
 
-    # Center the YES / NO / SKIP buttons underneath the two panes
+    st.subheader("LLM judgement")
+    if llm_judgement_reasoning:
+        reasoning_text = str(llm_judgement_reasoning)
+        st.markdown(reasoning_text)
+    else:
+        st.caption("No stored LLM judgement is available for this item.")
+
+    # Center the YES / NO / SKIP buttons underneath the judgement section
     cols = st.columns([1, 1, 1, 1, 1])
 
     def _submit(label: str):
