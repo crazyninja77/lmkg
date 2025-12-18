@@ -112,7 +112,7 @@ def main(args: Arguments):
 
     num_generated = 0
     with open(args.file_path) as f_in, open(output_file, "w") as f_out, open(output_log, "w", buffering=1) as f_log:
-        yaml.dump(args.as_dict(), f_log, sort_keys=False, default_flow_style=False)
+        yaml.dump(args.as_dict(), f_log, sort_keys=True, default_flow_style=False)
         # Skip lines until we reach the start line
         for i in range(args.start):
             next(f_in, None)
