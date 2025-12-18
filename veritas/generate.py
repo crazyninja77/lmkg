@@ -97,8 +97,13 @@ def main(args: Arguments):
         os.makedirs(output_dir)
     else:
         raise ValueError(f"Directory {output_dir} already exists.")
-    output_log = osp.join(output_dir, "log.txt")
+    output_log = osp.join(output_dir, "log.tsv")
     output_file = osp.join(output_dir, f"contradicted-{input_filename}")
+    config_file = osp.join(output_dir, "config.yml")
+
+    # Save full configuration for this run
+    with open(config_file, "w") as f_config:
+        yaml.dump(args.as_dict(), f_config, sort_keys=True, default_flow_style=False)
 
     # If end is not specified, process until the end of the file
     total_lines = count_lines(args.file_path)
@@ -112,7 +117,13 @@ def main(args: Arguments):
 
     num_generated = 0
     with open(args.file_path) as f_in, open(output_file, "w") as f_out, open(output_log, "w", buffering=1) as f_log:
-        yaml.dump(args.as_dict(), f_log, sort_keys=True, default_flow_style=False)
+        # Write header for tab-separated log file
+        f_log.write("id\tstatus\tinput_tokens\toutput_tokens\tcost\n")
+
+        # Track cumulative usage to derive per-sample per-instance values
+        prev_total_input_tokens = 0
+        prev_total_output_tokens = 0
+
         # Skip lines until we reach the start line
         for i in range(args.start):
             next(f_in, None)
@@ -185,7 +196,6 @@ def main(args: Arguments):
                         num_generated += 1
 
                 sample_log = ",".join(errors) if errors else "ok"
-                f_log.write(f"{current_line_num}\t{sample_log}\n")
 
                 # Update progress bar tokens & cost based on agent's accumulated usage
                 total_input_tokens, total_output_tokens = agent.get_usage_totals()
@@ -193,10 +203,30 @@ def main(args: Arguments):
                 total_input_tokens += judge_input_tokens
                 total_output_tokens += judge_output_tokens
 
+                # Per-instance token deltas
+                delta_input_tokens = total_input_tokens - prev_total_input_tokens
+                delta_output_tokens = total_output_tokens - prev_total_output_tokens
+
+                # Cumulative total cost
                 total_cost = (
                     total_input_tokens * model_cost[0]
                     + total_output_tokens * model_cost[1]
                 ) / 1_000_000
+
+                # Per-instance cost from token deltas
+                sample_cost = (
+                    delta_input_tokens * model_cost[0]
+                    + delta_output_tokens * model_cost[1]
+                ) / 1_000_000
+
+                # Log metadata (tab-separated): per-instance tokens, per-instance cost
+                f_log.write(
+                    f"{current_line_num}\t{sample_log}\t{delta_input_tokens}\t{delta_output_tokens}\t{sample_cost:.6f}\n"
+                )
+
+                # Update previous totals for next iteration
+                prev_total_input_tokens = total_input_tokens
+                prev_total_output_tokens = total_output_tokens
                 bar.set_postfix(
                     successful=f"{num_generated:,}",
                     input_tokens=f"{total_input_tokens:,}",
