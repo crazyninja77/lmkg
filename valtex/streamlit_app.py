@@ -35,7 +35,7 @@ def load_hf_dataset():
         st.stop()
     from datasets import load_dataset  # type: ignore
 
-    ds = load_dataset("ddaza/veritas", "veritas-rebel")
+    ds = load_dataset("ddaza/valtex", "valtex-rebel")
     return ds
 
 
@@ -215,9 +215,9 @@ def _filter_unlabeled(tasks: List[dict], annotator_id: str) -> List[dict]:
 
 
 def main():
-    st.set_page_config(page_title="Veritas Triple Validation", layout="wide")
+    st.set_page_config(page_title="VALTEX Triple Validation", layout="wide")
 
-    st.title("Veritas: Triple Validation")
+    st.title("VALTEX: Triple Validation")
     st.caption(
         "Task: Review ALL candidate (NEG) triples. Click YES only if ALL contradict the passage; otherwise click NO."
     )
@@ -243,7 +243,7 @@ def main():
             )
 
         st.markdown("---")
-        st.caption("Annotations are saved to veritas/annotations.csv")
+        st.caption("Annotations are saved to valtex/annotations.csv")
 
     if not annotator_id:
         st.info("Enter your Annotator ID to begin.")

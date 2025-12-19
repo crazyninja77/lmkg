@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from lmkg.agent import LMKGAgent
 from lmkg.exceptions import MalformedQueryException
-from veritas.utils import count_lines, get_timestamp_and_hash, LLM_COST_MAPPING
+from valtex.utils import count_lines, get_timestamp_and_hash, LLM_COST_MAPPING
 
 
 class Arguments(Tap):
@@ -92,7 +92,7 @@ def main(args: Arguments):
     model_cost = LLM_COST_MAPPING[args.model]
 
     input_filename = osp.basename(args.file_path)
-    output_dir = osp.join(osp.dirname(args.file_path), get_timestamp_and_hash())
+    output_dir = osp.join(osp.dirname(args.file_path), f"valtex-{get_timestamp_and_hash()}")
     if not osp.exists(output_dir):
         os.makedirs(output_dir)
     else:

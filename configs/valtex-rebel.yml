@@ -1,0 +1,10 @@
+file_path: data/genie-rebel/en_train.jsonl
+maximum: 1000
+task: contradiction_generation
+functions:
+  - get_predicates_with_subject
+  - get_predicates_with_object
+  - get_subject_entities
+  - get_object_entities
+timeout: 20
+recursion_limit: 100
