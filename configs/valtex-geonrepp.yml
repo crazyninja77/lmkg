@@ -1,0 +1,11 @@
+file_path: data/genie-geonre/trip_dataset.jsonl
+start: 0
+end: 999 
+task: contradiction_generation_v5
+functions:
+  - get_predicates_with_subject
+  - get_predicates_with_object
+  - get_subject_entities
+  - get_object_entities
+timeout: 20
+recursion_limit: 100
