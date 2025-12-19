@@ -68,6 +68,28 @@ def judge_answer_parser(answer: str) -> tuple[bool, set[str]]:
     return judgement, set()
 
 
+def run_agent_safely(agent: LMKGAgent, agent_name: str, *args, **kwargs):
+    """
+    Helper to run an agent and capture common exceptions.
+
+    Returns:
+        (result, errors)
+        - result: whatever `agent.run` returns, or None on error
+        - errors: list of string error messages
+    """
+    try:
+        result = agent.run(*args, **kwargs)
+        return result, []
+    except GraphRecursionError:
+        return None, [f"{agent_name}: recursion exceeded"]
+    except asyncio.TimeoutError:
+        return None, [f"{agent_name}: timed out"]
+    except KeyError as e:
+        return None, [f"{agent_name}: key error: {e}"]
+    except MalformedQueryException:
+        return None, [f"{agent_name}: bad query"]
+
+
 def main(args: Arguments):
     agent = LMKGAgent(
         model=args.model,
@@ -156,24 +178,20 @@ def main(args: Arguments):
                 task_kwargs = {"passage": passage, "triples": triples}
                 answer = None
                 errors = []
-                try:
-                    answer, reasoning, _ = agent.run(
-                        args.task,
-                        task_kwargs,
-                        initial_ids,
-                        check_initial_ids=True
-                    )
-                except GraphRecursionError:
-                    errors.append(f"recursion exceeded")
-                except asyncio.TimeoutError:
-                    errors.append("timed out")
-                except KeyError as e:
-                    errors.append(f"key error: {e}")
-                except MalformedQueryException as e:
-                    errors.append("bad query")
+                agent_result, agent_errors = run_agent_safely(
+                    agent,
+                    "agent",
+                    args.task,
+                    task_kwargs,
+                    initial_ids,
+                    check_initial_ids=True,
+                )
+                if agent_result is not None:
+                    answer, reasoning, _ = agent_result
+                errors.extend(agent_errors)
 
                 if answer is None:
-                    errors.append("no answer")
+                    errors.append(f"agent: no answer")
 
                 if not errors:
                     answer_triples = []
@@ -182,18 +200,28 @@ def main(args: Arguments):
 
                     answer_triples = "\n".join(answer_triples)
 
-                    judge_answer, judge_reasoning, _ = judge.run(
+                    judge_result, judge_errors = run_agent_safely(
+                        judge,
+                        "judge",
                         task="contradiction_generation_judge",
-                        task_kwargs={"text": passage, "triples": triples, "contradicting_triples": answer_triples}
+                        task_kwargs={
+                            "text": passage,
+                            "triples": triples,
+                            "contradicting_triples": answer_triples,
+                        },
                     )
-                    if not judge_answer:
-                        errors.append("judge answer is no")
-                    else:
-                        answer['generation_reasoning'] = reasoning
-                        answer['judgement_reasoning'] = judge_reasoning
-                        data['output'].append(answer)
-                        f_out.write(f"{json.dumps(data)}\n")
-                        num_generated += 1
+                    errors.extend(judge_errors)
+                    if not errors:
+                        judge_answer, judge_reasoning, _ = judge_result
+                        if not judge_answer:
+                            errors.append("judge answer is no")
+                        else:
+                            # Everything worked out! Write the data to the output file.
+                            answer['generation_reasoning'] = reasoning
+                            answer['judgement_reasoning'] = judge_reasoning
+                            data['output'].append(answer)
+                            f_out.write(f"{json.dumps(data)}\n")
+                            num_generated += 1
 
                 sample_log = ",".join(errors) if errors else "ok"
 
