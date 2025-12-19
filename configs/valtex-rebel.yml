@@ -1,5 +1,5 @@
 file_path: data/genie-rebel/en_train.jsonl
-maximum: 1000
+maximum: 5000
 task: contradiction_generation
 functions:
   - get_predicates_with_subject
