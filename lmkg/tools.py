@@ -5,7 +5,8 @@ import socket
 import urllib.error
 from typing import Any, Callable
 
-from SPARQLWrapper import JSON, SPARQLWrapper, SPARQLExceptions
+from SPARQLWrapper import JSON, SPARQLWrapper
+import SPARQLWrapper.SPARQLExceptions as SPARQLExceptions
 
 from .exceptions import MalformedQueryException
 
